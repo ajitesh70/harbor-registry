@@ -43,16 +43,15 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = true
   }
 
-  # terraform/main is only ever applied by .github/workflows/cd.yml, which
-  # assumes deploy_role_arn -- so the identity creating the cluster and the
-  # identity that needs access to it (deploy_role_arn) are always the same
-  # principal, and this flag alone covers it. (An earlier version of this
-  # file also had an explicit aws_eks_access_entry for deploy_role_arn, but
-  # since it's the same principal as the creator, EKS had already granted it
-  # an implicit entry and the explicit one 409'd as a duplicate. Toggling
-  # this flag off instead to route around that also isn't viable: the
-  # attribute is apply-time-only/non-refreshable, so the AWS provider forces
-  # a full destroy+recreate of the cluster on any change to it.)
+  # bootstrap_cluster_creator_admin_permissions=true does create an access
+  # entry for the creating principal (deploy_role_arn, since terraform/main
+  # is only ever applied via cd.yml), but empirically that entry comes back
+  # with zero associated access policies -- authenticated, not authorized.
+  # So it still needs an explicit policy association (below) on top; the
+  # flag alone isn't sufficient despite what the name implies. Toggling this
+  # flag itself isn't viable to work around that: it's apply-time-only/
+  # non-refreshable, so the provider would force a full destroy+recreate of
+  # the cluster on any change to it.
   access_config {
     authentication_mode                         = "API"
     bootstrap_cluster_creator_admin_permissions = true
@@ -74,6 +73,20 @@ resource "aws_eks_cluster" "this" {
     aws_iam_role_policy_attachment.cluster_policy,
     aws_cloudwatch_log_group.cluster,
   ]
+}
+
+# The access *entry* for deploy_role_arn already exists (created implicitly
+# by bootstrap_cluster_creator_admin_permissions above), so only the policy
+# association is managed here -- declaring the entry itself too would try to
+# create a duplicate and 409.
+resource "aws_eks_access_policy_association" "deploy_admin" {
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.deploy_role_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 # --- OIDC provider for IRSA (pod-level IAM, e.g. Harbor registry -> S3) ---
