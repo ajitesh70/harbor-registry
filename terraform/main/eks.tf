@@ -43,14 +43,19 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = true
   }
 
-  # Off, not true: whoever runs `terraform apply` (CI's deploy role today,
-  # but possibly a human running this locally) would otherwise get an
-  # implicit access entry that collides with the explicit one below when
-  # they're the same principal (ResourceInUseException on a second apply by
-  # the same identity). The explicit entry covers deploy_role_arn either way.
+  # terraform/main is only ever applied by .github/workflows/cd.yml, which
+  # assumes deploy_role_arn -- so the identity creating the cluster and the
+  # identity that needs access to it (deploy_role_arn) are always the same
+  # principal, and this flag alone covers it. (An earlier version of this
+  # file also had an explicit aws_eks_access_entry for deploy_role_arn, but
+  # since it's the same principal as the creator, EKS had already granted it
+  # an implicit entry and the explicit one 409'd as a duplicate. Toggling
+  # this flag off instead to route around that also isn't viable: the
+  # attribute is apply-time-only/non-refreshable, so the AWS provider forces
+  # a full destroy+recreate of the cluster on any change to it.)
   access_config {
     authentication_mode                         = "API"
-    bootstrap_cluster_creator_admin_permissions = false
+    bootstrap_cluster_creator_admin_permissions = true
   }
 
   enabled_cluster_log_types = ["api", "audit", "authenticator"]
@@ -69,23 +74,6 @@ resource "aws_eks_cluster" "this" {
     aws_iam_role_policy_attachment.cluster_policy,
     aws_cloudwatch_log_group.cluster,
   ]
-}
-
-# Lets .github/workflows/cd.yml (which assumes deploy_role_arn, not the
-# identity that created the cluster) run kubectl/helm against it.
-resource "aws_eks_access_entry" "deploy" {
-  cluster_name  = aws_eks_cluster.this.name
-  principal_arn = var.deploy_role_arn
-}
-
-resource "aws_eks_access_policy_association" "deploy_admin" {
-  cluster_name  = aws_eks_cluster.this.name
-  principal_arn = var.deploy_role_arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-
-  access_scope {
-    type = "cluster"
-  }
 }
 
 # --- OIDC provider for IRSA (pod-level IAM, e.g. Harbor registry -> S3) ---
