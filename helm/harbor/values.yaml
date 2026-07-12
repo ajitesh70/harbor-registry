@@ -1,0 +1,125 @@
+# Production values for the `harbor` subchart (goharbor/harbor-helm v1.15.0).
+# All upstream keys live under the `harbor:` alias since it's a dependency of
+# this wrapper chart (see Chart.yaml).
+#
+# Values marked "set by CD" below are intentionally placeholders: either they
+# aren't known until other Terraform resources exist (the NLB hostname isn't
+# assigned until the Service is created), or they're secrets that must not be
+# committed to git. .github/workflows/cd.yml fills them in via
+# `helm upgrade --set` at deploy time, sourced from Terraform outputs /
+# AWS Secrets Manager, and masks them in the Actions log.
+#
+# No owned domain (see project decision): TLS is Harbor's own self-signed CA
+# (expose.tls.certSource: auto) rather than a Let's Encrypt/ACM cert bound to
+# a hostname we don't have. Clients need to trust that CA to `docker login`/
+# `docker pull` without --insecure-registry -- see README "Trusting the
+# registry CA". Swapping in a real domain later is a values change, not a
+# redesign: point expose.type at ingress + cert-manager/ACM instead.
+
+harbor:
+  externalURL: "https://harbor.placeholder.internal" # set by CD: actual NLB hostname
+
+  serviceAccountName: harbor # created by terraform/main/kubernetes.tf, IRSA-annotated for S3 (see terraform/main/s3.tf)
+  automountServiceAccountToken: true
+
+  expose:
+    type: loadBalancer
+    tls:
+      enabled: true
+      certSource: auto
+      auto:
+        commonName: "harbor.placeholder.internal" # set by CD (pass 2): actual NLB hostname, must match expose.loadBalancer's real address for clients to trust it without hostname mismatch warnings
+    loadBalancer:
+      name: harbor
+      annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+        service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      ports:
+        httpPort: 80
+        httpsPort: 443
+
+  internalTLS:
+    enabled: true
+    certSource: auto
+
+  persistence:
+    resourcePolicy: "keep"
+    imageChartStorage:
+      type: s3
+      s3:
+        region: us-east-1 # keep in sync with terraform/main/variables.tf var.region
+        bucket: "" # set by CD: terraform output registry_bucket
+        encrypt: true
+        secure: true
+        v4auth: true
+    persistentVolumeClaim:
+      trivy:
+        storageClass: gp3
+        size: 5Gi
+      jobservice:
+        jobLog:
+          storageClass: gp3
+          size: 1Gi
+
+  database:
+    type: external
+    external:
+      host: "" # set by CD: terraform output db_endpoint
+      port: "5432"
+      username: harbor
+      password: "" # set by CD: fetched from AWS Secrets Manager (terraform output db_secret_arn), masked
+      coreDatabase: registry
+      sslmode: require
+
+  redis:
+    type: external
+    external:
+      addr: "" # set by CD: "<terraform output redis_endpoint>:6379"
+      existingSecret: harbor-redis # created by terraform/main/secrets.tf; avoids passing the password through --set at all
+
+  existingSecretAdminPassword: harbor-admin-password # created by terraform/main/secrets.tf
+  existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD
+
+  trivy:
+    enabled: true
+    replicas: 1
+    resources:
+      requests: { cpu: 200m, memory: 256Mi }
+      limits: { cpu: 1000m, memory: 1Gi }
+
+  metrics:
+    enabled: true
+
+  core:
+    replicas: 2
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  jobservice:
+    replicas: 2
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+  registry:
+    replicas: 2
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+    controller:
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+        limits: { cpu: 200m, memory: 256Mi }
+
+  portal:
+    replicas: 2
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 200m, memory: 128Mi }
+
+  nginx:
+    replicas: 2
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 200m, memory: 128Mi }

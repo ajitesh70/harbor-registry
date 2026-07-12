@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stack: [bootstrap, main]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: terraform fmt -check
+        run: terraform -chdir=terraform/${{ matrix.stack }} fmt -check -recursive
+
+      - name: terraform init (no backend, validate only)
+        run: terraform -chdir=terraform/${{ matrix.stack }} init -backend=false
+
+      - name: terraform validate
+        run: terraform -chdir=terraform/${{ matrix.stack }} validate
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm dependency update
+        run: helm dependency update helm/harbor
+
+      # redis.external.existingSecret makes the chart look up a live Secret via
+      # Helm's `lookup` function (see values.yaml comment) -- always empty/nil
+      # outside a real cluster, so lint/template here override it back to a
+      # plain inline password just to render. cd.yml's real deploy never sets
+      # this override and keeps using existingSecret.
+      - name: helm lint
+        run: |
+          helm lint helm/harbor \
+            --set harbor.redis.external.existingSecret="" \
+            --set harbor.redis.external.password=placeholder
+
+      - name: helm template (render check)
+        run: |
+          helm template harbor helm/harbor \
+            --set harbor.persistence.imageChartStorage.s3.bucket=placeholder-bucket \
+            --set harbor.database.external.host=placeholder-db \
+            --set harbor.database.external.password=placeholder \
+            --set harbor.redis.external.addr=placeholder-redis:6379 \
+            --set harbor.redis.external.existingSecret="" \
+            --set harbor.redis.external.password=placeholder \
+            > /dev/null

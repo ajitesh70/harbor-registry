@@ -1,0 +1,20 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Helm
+helm/harbor/charts/*.tgz
+helm/harbor/charts/harbor/
+
+# Local
+.DS_Store
+*.log
+kubeconfig

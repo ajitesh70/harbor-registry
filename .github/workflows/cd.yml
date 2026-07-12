@@ -1,0 +1,111 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write # required for AWS OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: terraform apply (EKS, RDS, ElastiCache, S3, IRSA)
+        working-directory: terraform/main
+        run: |
+          terraform init
+          terraform apply -auto-approve \
+            -var="deploy_role_arn=${{ vars.AWS_ROLE_ARN }}"
+
+      - name: Capture terraform outputs
+        id: tf
+        working-directory: terraform/main
+        run: |
+          {
+            echo "cluster_name=$(terraform output -raw cluster_name)"
+            echo "registry_bucket=$(terraform output -raw registry_bucket)"
+            echo "db_endpoint=$(terraform output -raw db_endpoint)"
+            echo "db_secret_arn=$(terraform output -raw db_secret_arn)"
+            echo "redis_endpoint=$(terraform output -raw redis_endpoint)"
+            echo "harbor_admin_secret_arn=$(terraform output -raw harbor_admin_secret_arn)"
+            echo "harbor_namespace=harbor"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch DB password from Secrets Manager
+        id: db_secret
+        run: |
+          PASSWORD=$(aws secretsmanager get-secret-value \
+            --secret-id "${{ steps.tf.outputs.db_secret_arn }}" \
+            --query SecretString --output text | jq -r .password)
+          echo "::add-mask::$PASSWORD"
+          echo "password=$PASSWORD" >> "$GITHUB_OUTPUT"
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ steps.tf.outputs.cluster_name }}" --region "${{ env.AWS_REGION }}"
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm dependency update
+        run: helm dependency update helm/harbor
+
+      - name: helm upgrade --install (pass 1 -- establishes the Service/NLB)
+        run: |
+          helm upgrade --install harbor helm/harbor \
+            --namespace "${{ steps.tf.outputs.harbor_namespace }}" \
+            -f helm/harbor/values.yaml \
+            --set harbor.persistence.imageChartStorage.s3.bucket="${{ steps.tf.outputs.registry_bucket }}" \
+            --set harbor.database.external.host="${{ steps.tf.outputs.db_endpoint }}" \
+            --set harbor.database.external.password="${{ steps.db_secret.outputs.password }}" \
+            --set harbor.redis.external.addr="${{ steps.tf.outputs.redis_endpoint }}:6379" \
+            --wait --timeout 10m
+
+      - name: Wait for NLB hostname
+        id: lb
+        run: |
+          for i in $(seq 1 30); do
+            HOSTNAME=$(kubectl -n "${{ steps.tf.outputs.harbor_namespace }}" get svc harbor \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            if [ -n "$HOSTNAME" ]; then
+              echo "hostname=$HOSTNAME" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "NLB hostname never became available" >&2
+          exit 1
+
+      - name: helm upgrade (pass 2 -- set real externalURL now that the NLB hostname is known)
+        run: |
+          helm upgrade --install harbor helm/harbor \
+            --namespace "${{ steps.tf.outputs.harbor_namespace }}" \
+            -f helm/harbor/values.yaml \
+            --set harbor.externalURL="https://${{ steps.lb.outputs.hostname }}" \
+            --set harbor.expose.tls.auto.commonName="${{ steps.lb.outputs.hostname }}" \
+            --set harbor.persistence.imageChartStorage.s3.bucket="${{ steps.tf.outputs.registry_bucket }}" \
+            --set harbor.database.external.host="${{ steps.tf.outputs.db_endpoint }}" \
+            --set harbor.database.external.password="${{ steps.db_secret.outputs.password }}" \
+            --set harbor.redis.external.addr="${{ steps.tf.outputs.redis_endpoint }}:6379" \
+            --wait --timeout 10m
+
+      - name: Summary
+        run: |
+          echo "### Harbor deployed :whale:" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: https://${{ steps.lb.outputs.hostname }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Admin password: \`aws secretsmanager get-secret-value --secret-id ${{ steps.tf.outputs.harbor_admin_secret_arn }} --query SecretString --output text\`" >> "$GITHUB_STEP_SUMMARY"

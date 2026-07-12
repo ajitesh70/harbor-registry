@@ -1,0 +1,11 @@
+apiVersion: v2
+name: harbor-registry
+description: Production Harbor deployment wrapping the official goharbor/harbor chart
+type: application
+version: 1.0.0
+appVersion: "2.11.0"
+
+dependencies:
+  - name: harbor
+    version: "1.15.0"
+    repository: "https://helm.goharbor.io"
