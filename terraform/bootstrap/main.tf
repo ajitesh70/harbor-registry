@@ -137,8 +137,31 @@ data "aws_iam_policy_document" "deploy_permissions" {
       "s3:*",
       "secretsmanager:*",
       "logs:*",
+      "kms:*",
     ]
     resources = ["*"]
+  }
+
+  # ElastiCache (and other AWS services) rely on a service-linked role that
+  # AWS normally auto-creates on first use -- but that creation itself is an
+  # iam: action, so it has to be explicitly granted rather than assumed.
+  statement {
+    sid    = "ServiceLinkedRolesForInfraServices"
+    effect = "Allow"
+    actions = [
+      "iam:CreateServiceLinkedRole",
+    ]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values = [
+        "elasticache.amazonaws.com",
+        "eks.amazonaws.com",
+        "eks-nodegroup.amazonaws.com",
+        "rds.amazonaws.com",
+      ]
+    }
   }
 
   statement {
