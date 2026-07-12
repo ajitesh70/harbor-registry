@@ -57,6 +57,12 @@ variable "db_multi_az" {
   default     = false
 }
 
+variable "db_backup_retention_days" {
+  description = "This AWS account rejected the usual 7-day default with FreeTierRestrictionError, so this defaults low (1); raise it once the account is off Free Tier restrictions."
+  type        = number
+  default     = 1
+}
+
 variable "db_deletion_protection" {
   description = "Blocks `terraform destroy`/accidental deletion of the DB. Off by default since this is expected to be torn down and rebuilt during setup; turn on once real data lives in it."
   type        = bool

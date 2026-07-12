@@ -43,9 +43,14 @@ resource "aws_eks_cluster" "this" {
     endpoint_public_access  = true
   }
 
+  # Off, not true: whoever runs `terraform apply` (CI's deploy role today,
+  # but possibly a human running this locally) would otherwise get an
+  # implicit access entry that collides with the explicit one below when
+  # they're the same principal (ResourceInUseException on a second apply by
+  # the same identity). The explicit entry covers deploy_role_arn either way.
   access_config {
     authentication_mode                         = "API"
-    bootstrap_cluster_creator_admin_permissions = true
+    bootstrap_cluster_creator_admin_permissions = false
   }
 
   enabled_cluster_log_types = ["api", "audit", "authenticator"]

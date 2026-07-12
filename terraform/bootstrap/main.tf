@@ -142,11 +142,12 @@ data "aws_iam_policy_document" "deploy_permissions" {
     resources = ["*"]
   }
 
-  # ElastiCache (and other AWS services) rely on a service-linked role that
-  # AWS normally auto-creates on first use -- but that creation itself is an
-  # iam: action, so it has to be explicitly granted rather than assumed.
+  # ElastiCache/EKS nodegroups/RDS (and other AWS services) rely on a
+  # service-linked role that AWS normally auto-creates on first use -- but
+  # both creating it and checking whether it already exists are iam: actions,
+  # so they have to be explicitly granted rather than assumed.
   statement {
-    sid    = "ServiceLinkedRolesForInfraServices"
+    sid    = "CreateServiceLinkedRolesForInfraServices"
     effect = "Allow"
     actions = [
       "iam:CreateServiceLinkedRole",
@@ -162,6 +163,16 @@ data "aws_iam_policy_document" "deploy_permissions" {
         "rds.amazonaws.com",
       ]
     }
+  }
+
+  # iam:AWSServiceName isn't a valid condition key for GetRole, so the
+  # "already exists?" check AWS does before creating a service-linked role
+  # needs its own statement, scoped to just that path instead.
+  statement {
+    sid       = "ReadServiceLinkedRoles"
+    effect    = "Allow"
+    actions   = ["iam:GetRole"]
+    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/*"]
   }
 
   statement {
@@ -190,6 +201,7 @@ data "aws_iam_policy_document" "deploy_permissions" {
       "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy", "iam:GetPolicyVersion",
       "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:ListPolicyVersions",
       "iam:CreateOpenIDConnectProvider", "iam:GetOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider",
+      "iam:TagOpenIDConnectProvider", "iam:UntagOpenIDConnectProvider", "iam:ListOpenIDConnectProviderTags",
       "iam:PassRole",
     ]
     resources = [
