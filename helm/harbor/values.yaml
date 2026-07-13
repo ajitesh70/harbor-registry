@@ -71,11 +71,14 @@ harbor:
       coreDatabase: registry
       sslmode: require
 
+  # No password: ElastiCache access control here is VPC security-group-only,
+  # not AUTH (see terraform/main/elasticache.tf for why -- the chart has no
+  # TLS support for Redis, and ElastiCache requires transit encryption for
+  # AUTH tokens to be accepted at all).
   redis:
     type: external
     external:
       addr: "" # set by CD: "<terraform output redis_endpoint>:6379"
-      existingSecret: harbor-redis # created by terraform/main/secrets.tf; avoids passing the password through --set at all
 
   existingSecretAdminPassword: harbor-admin-password # created by terraform/main/secrets.tf
   existingSecretAdminPasswordKey: HARBOR_ADMIN_PASSWORD

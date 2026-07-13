@@ -1,8 +1,8 @@
 # Harbor's Redis (job queue + core cache), run externally via ElastiCache --
-# see helm/harbor/values-production.yaml redis.type=external. A replication
-# group (not the plain aws_elasticache_cluster resource) so we get
-# transit/at-rest encryption and an auth token, while still running a single
-# cache.t3.micro node (num_cache_clusters=1) to keep cost down.
+# see helm/harbor/values.yaml redis.type=external. A replication group (not
+# the plain aws_elasticache_cluster resource) for the at-rest encryption
+# option, while still running a single cache.t3.micro node
+# (num_cache_clusters=1) to keep cost down.
 
 resource "aws_elasticache_subnet_group" "harbor" {
   name       = "${var.project}-redis"
@@ -34,11 +34,6 @@ resource "aws_security_group" "redis" {
   }
 }
 
-resource "random_password" "redis_auth" {
-  length  = 32
-  special = false # ElastiCache AUTH tokens can't contain some special chars
-}
-
 resource "aws_elasticache_replication_group" "harbor" {
   replication_group_id = "${var.project}-redis"
   description          = "Harbor core/jobservice cache + job queue"
@@ -52,9 +47,15 @@ resource "aws_elasticache_replication_group" "harbor" {
   subnet_group_name  = aws_elasticache_subnet_group.harbor.name
   security_group_ids = [aws_security_group.redis.id]
 
+  # No transit encryption and no AUTH token: the goharbor/harbor chart's
+  # redis.external config has no TLS option (plain redis://, not rediss://),
+  # and ElastiCache requires transit encryption ON for an AUTH token to be
+  # accepted at all -- so with the chart unable to speak TLS, AUTH isn't
+  # reachable either. Access control instead comes entirely from
+  # security_group_ids (VPC-private, only the EKS node SG can reach port
+  # 6379). At-rest encryption is unaffected by this tradeoff and stays on.
   at_rest_encryption_enabled = true
-  transit_encryption_enabled = true
-  auth_token                 = random_password.redis_auth.result
+  transit_encryption_enabled = false
 
   automatic_failover_enabled = false # single node; would need num_cache_clusters >= 2
 

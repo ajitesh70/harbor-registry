@@ -27,10 +27,6 @@ output "redis_endpoint" {
   value = aws_elasticache_replication_group.harbor.primary_endpoint_address
 }
 
-output "redis_auth_secret_arn" {
-  value = aws_secretsmanager_secret.redis_auth.arn
-}
-
 output "harbor_admin_secret_arn" {
   description = "Secrets Manager ARN holding the Harbor admin password (also in-cluster as the harbor-admin-password Secret)."
   value       = aws_secretsmanager_secret.harbor_admin.arn

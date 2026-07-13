@@ -38,16 +38,8 @@ jobs:
       - name: helm dependency update
         run: helm dependency update helm/harbor
 
-      # redis.external.existingSecret makes the chart look up a live Secret via
-      # Helm's `lookup` function (see values.yaml comment) -- always empty/nil
-      # outside a real cluster, so lint/template here override it back to a
-      # plain inline password just to render. cd.yml's real deploy never sets
-      # this override and keeps using existingSecret.
       - name: helm lint
-        run: |
-          helm lint helm/harbor \
-            --set harbor.redis.external.existingSecret="" \
-            --set harbor.redis.external.password=placeholder
+        run: helm lint helm/harbor
 
       - name: helm template (render check)
         run: |
@@ -56,6 +48,4 @@ jobs:
             --set harbor.database.external.host=placeholder-db \
             --set harbor.database.external.password=placeholder \
             --set harbor.redis.external.addr=placeholder-redis:6379 \
-            --set harbor.redis.external.existingSecret="" \
-            --set harbor.redis.external.password=placeholder \
             > /dev/null
