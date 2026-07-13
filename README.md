@@ -79,7 +79,7 @@ Because there's no owned domain, Harbor's cert is self-signed by its own generat
 publicly trusted one. `docker`/`podman`/`nerdctl` will refuse to push/pull until they trust it:
 
 ```
-kubectl -n harbor get secret harbor-ingress -o jsonpath='{.data.ca\.crt}' | base64 -d > harbor-ca.crt
+kubectl -n harbor get secret harbor-nginx -o jsonpath='{.data.ca\.crt}' | base64 -d > harbor-ca.crt
 sudo cp harbor-ca.crt /etc/docker/certs.d/<nlb-hostname>/ca.crt   # Linux Docker
 # then: docker login <nlb-hostname>
 ```
