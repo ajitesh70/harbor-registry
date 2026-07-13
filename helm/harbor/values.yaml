@@ -93,20 +93,25 @@ harbor:
   metrics:
     enabled: true
 
+  # Single replica across core/jobservice/registry/portal/nginx: t3.small
+  # nodes cap out around ~11 pods each, and 2 nodes can't fit every
+  # component doubled once kube-system (aws-node/kube-proxy/coredns/ebs-csi)
+  # is counted too. Bump node_instance_type/node_desired_size in
+  # terraform/main/variables.tf first if raising these back to 2+ for real HA.
   core:
-    replicas: 2
+    replicas: 1
     resources:
       requests: { cpu: 100m, memory: 128Mi }
       limits: { cpu: 500m, memory: 512Mi }
 
   jobservice:
-    replicas: 2
+    replicas: 1
     resources:
       requests: { cpu: 100m, memory: 128Mi }
       limits: { cpu: 500m, memory: 512Mi }
 
   registry:
-    replicas: 2
+    replicas: 1
     resources:
       requests: { cpu: 100m, memory: 128Mi }
       limits: { cpu: 500m, memory: 512Mi }
@@ -116,13 +121,13 @@ harbor:
         limits: { cpu: 200m, memory: 256Mi }
 
   portal:
-    replicas: 2
+    replicas: 1
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { cpu: 200m, memory: 128Mi }
 
   nginx:
-    replicas: 2
+    replicas: 1
     resources:
       requests: { cpu: 50m, memory: 64Mi }
       limits: { cpu: 200m, memory: 128Mi }
